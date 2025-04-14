@@ -197,6 +197,7 @@
 <script>
 import BarChart from "@/components/BarChart.vue";
 import axios from "axios";
+import { ethers } from "ethers";
 
 export default {
   name: "PoolPage",
@@ -310,9 +311,9 @@ export default {
         let contractAddress;
         await axios.get("http://localhost:3300/address").then((result) => {
           if (this.poolId === "curve") {
-            contractAddress = result.data.addressCurve;
+            contractAddress = result.data.contractAddress1;
           } else {
-            contractAddress = result.data.addressSum;
+            contractAddress = result.data.contractAddress2;
           }
         });
         // Connect to Hardhat local blockchain

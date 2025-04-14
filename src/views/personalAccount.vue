@@ -24,11 +24,7 @@
       <div v-else class="pool-data">
         <div v-for="(pool, index) in poolShares" :key="index" class="pool-item">
           <h3>{{ pool.name }}</h3>
-          <p>
-            Your Share: {{ pool.share }} / {{ pool.total }} ({{
-              pool.percentage
-            }}%)
-          </p>
+          <p>Your Share: ({{ pool.percentage }}%)</p>
         </div>
       </div>
     </div>
@@ -37,6 +33,7 @@
 
 <script>
 import { ethers } from "ethers";
+import axios from "axios";
 
 export default {
   data() {
@@ -44,6 +41,7 @@ export default {
       loading: true,
       error: null,
       poolShares: [], // Stores user share data for each liquidity pool
+      contractAddress1: "",
     };
   },
   methods: {
@@ -59,7 +57,7 @@ export default {
     async fetchContractAddresses() {
       try {
         // Fetch contract addresses from backend (JSON file)
-        const response = await axios.get("localhost:3300/getContractAddress");
+        const response = await axios.get("http://localhost:3300/address");
         return response.data; // Assume response contains { contract1Address, contract2Address }
       } catch (err) {
         throw new Error("Failed to fetch contract addresses.");
@@ -79,34 +77,45 @@ export default {
 
         const userAddress = await signer.getAddress();
 
-        // Replace these with your smart contract addresses and ABIs
-        const { contract1Address, contract2Address } =
-          await this.fetchContractAddresses();
+        let contractAddress1;
+        let contractAddress2;
+
+        // Fetch contract addresses from backend (JSON file)
+        await axios.get("http://localhost:3300/address").then((result) => {
+          contractAddress1 = result.data.contractAddress1;
+          contractAddress2 = result.data.contractAddress2;
+        });
+
+        console.log(contractAddress1);
         const contractABI = [
           "function getShare() public view returns(uint, uint)",
         ];
 
         // Load contracts
         const contract1 = new ethers.Contract(
-          contract1Address,
+          contractAddress1,
           contractABI,
-          provider
+          signer
         );
         const contract2 = new ethers.Contract(
-          contract2Address,
+          contractAddress2,
           contractABI,
-          provider
+          signer
         );
 
         // Fetch user shares from contracts
-        const [share1, total1] = await contract1.getShare(userAddress);
-        const [share2, total2] = await contract2.getShare(userAddress);
+        const [share1, total1] = await contract1.getShare();
+        const [share2, total2] = await contract2.getShare();
 
         // Calculate percentages
         const pool1Percentage =
-          total1 > 0 ? ((share1 / total1) * 100).toFixed(2) : 0;
+          Number(total1) > 0
+            ? ((Number(share1) / Number(total1)) * 100).toFixed(2)
+            : 0;
         const pool2Percentage =
-          total2 > 0 ? ((share2 / total2) * 100).toFixed(2) : 0;
+          Number(total2) > 0
+            ? ((Number(share2) / Number(total2)) * 100).toFixed(2)
+            : 0;
 
         // Update state
         this.poolShares = [

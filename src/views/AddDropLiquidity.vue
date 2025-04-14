@@ -53,6 +53,21 @@
           </el-select>
         </div>
 
+        <!-- 选择代币 -->
+        <div style="margin-bottom: 20px">
+          <label for="pair" style="font-size: 16px; font-weight: 500"
+            >Select Token</label
+          >
+          <el-select
+            v-model="selectedToken"
+            placeholder="Select Token"
+            style="width: 100%; margin-top: 10px"
+          >
+            <el-option label="AWT" value="AWT"></el-option>
+            <el-option label="RCT" value="RCT"></el-option>
+          </el-select>
+        </div>
+
         <!-- 输入金额 -->
         <div style="margin-bottom: 20px">
           <label for="amount" style="font-size: 16px; font-weight: 500"
@@ -90,17 +105,19 @@
 
 <script>
 import { ethers } from "ethers";
+import axios from "axios";
 
 export default {
   name: "LiquidityPage",
   data() {
     return {
       selectedPair: "", // 用户选择的代币对
+      selectedToken: "", // 用户选择代币
       amount: "", // 用户输入的金额
-      contractAddress: {
-        CurveAMM: "0xContractAddress1",
-        ConstantMeanAMM: "0xContractAddress2",
-      },
+      // contractAddress: {
+      //   CurveAMM: "0xContractAddress1",
+      //   ConstantMeanAMM: "0xContractAddress2",
+      // },
     };
   },
   created() {
@@ -149,26 +166,45 @@ export default {
         }
 
         // 请求 Metamask 连接
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        await provider.send("eth_requestAccounts", []);
-        const signer = provider.getSigner();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
 
         // 获取用户地址
         const userAddress = await signer.getAddress();
         console.log("User Address:", userAddress);
 
+        let contractAddress1;
+        let contractAddress2;
+        await axios.get("http://localhost:3300/address").then((result) => {
+          contractAddress1 = result.data.contractAddress1;
+          contractAddress2 = result.data.contractAddress2;
+        });
+        let contractAddress;
+        if (this.selectedPair == "CurveAMM") {
+          contractAddress = contractAddress1;
+        } else {
+          contractAddress = contractAddress2;
+        }
+        let flag;
+        if (this.selectedToken == "AWT") {
+          flag = 0;
+        } else {
+          flag = 1;
+        }
+        console.log("token:", flag);
+        console.log("contract address:", contractAddress);
         // 调用智能合约的 addLiquidity 方法
-        const contractAddress = this.contractAddresses[this.selectedPair]; // 替换为你的合约地址
+        // const contractAddress = this.contractAddresses[this.selectedPair]; // 替换为你的合约地址
         const abi = [
           // 替换为你的合约 ABI
-          "function addLiquidity(string pair, uint256 amount) public",
+          "function addLiquidity(uint flag, uint amount) external",
         ];
         const contract = new ethers.Contract(contractAddress, abi, signer);
 
         // 调用合约方法
-        const amountInWei = ethers.utils.parseEther(this.amount.toString()); // 转换为 Wei
-        const tx = await contract.addLiquidity(this.selectedPair, amountInWei);
-        await tx.wait();
+        // const amountInWei = ethers.parseEther(String(this.amount)); // 转换为 Wei
+        const tx = await contract.addLiquidity(flag, this.amount * 100);
+        // await tx.wait();
 
         this.$message.success("Successfully added liquidity!");
       } catch (error) {

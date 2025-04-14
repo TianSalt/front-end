@@ -111,10 +111,14 @@ export default {
           const now = Math.floor(Date.now() / 1000);
           const twentyFourHoursAgo = now - 24 * 60 * 60;
 
+          console.log(result.data);
+
           // 先筛选出24小时内的所有交易
           const recentTransactions = result.data.filter(
             (tx) => tx.time >= twentyFourHoursAgo
           );
+
+          console.log(recentTransactions);
 
           // 初始化统计对象
           const stats = {
@@ -173,7 +177,8 @@ export default {
             stats.pool2.AWT.boughtAmount.toFixed(2) +
             " RCT";
         })
-        .catch(() => {
+        .catch((error) => {
+          console.error(error);
           this.tableData[0].volume[0] = "❌ Failed to load";
           this.tableData[0].volume[1] = "❌ Failed to load";
           this.tableData[1].volume[0] = "❌ Failed to load";
@@ -185,9 +190,10 @@ export default {
         let contractAddress1;
         let contractAddress2;
         await axios.get("http://localhost:3300/address").then((result) => {
-          contractAddress1 = result.data.addressCurve;
-          contractAddress2 = result.data.addressSum;
+          contractAddress1 = result.data.contractAddress1;
+          contractAddress2 = result.data.contractAddress2;
         });
+        console.log(contractAddress1);
         // Connect to Hardhat local blockchain
         const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
         const contract1 = new ethers.Contract(
@@ -211,24 +217,37 @@ export default {
         const popularity1 = await contract1.getPopularity();
         const popularity2 = await contract2.getPopularity();
         // Update the chart data in the component state
-        this.chartData1 = [Number(data1Value1), Number(data1Value2)];
-        this.chartData2 = [Number(data2Value1), Number(data2Value2)];
+        this.chartData1 = [
+          Number(data1Value1) / 100,
+          Number(data1Value2) / 100,
+        ];
+        this.chartData2 = [
+          Number(data2Value1) / 100,
+          Number(data2Value2) / 100,
+        ];
+        console.log(Number(data1Value1) + Number(data1Value2));
 
         // pool, total, volume, popularity
-        this.tableData = [
-          {
-            pool: "Curve AMM",
-            total: Number(data1Value1) + Number(data1Value2),
-            volume: volume1,
-            popularity: popularity1,
-          },
-          {
-            pool: "Constant Mean AMM",
-            total: Number(data2Value1) + Number(data2Value2),
-            volume: volume2,
-            popularity: popularity2,
-          },
-        ];
+        this.tableData[0].total =
+          Number(data1Value1) / 100 + Number(data1Value2) / 100;
+        this.tableData[1].total =
+          Number(data2Value1) / 100 + Number(data2Value2) / 100;
+        this.tableData[0].popularity = popularity1;
+        this.tableData[1].popularity = popularity2;
+        // this.tableData = [
+        //   {
+        //     pool: "Curve AMM",
+        //     total: Number(data1Value1) + Number(data1Value2),
+        //     volume: volume[0],
+        //     popularity: popularity1,
+        //   },
+        //   {
+        //     pool: "Constant Mean AMM",
+        //     total: Number(data2Value1) + Number(data2Value2),
+        //     volume: volume[1],
+        //     popularity: popularity2,
+        //   },
+        // ];
       } catch (error) {
         console.error(error);
         this.tableData[0].total = "❌ Failed to load";

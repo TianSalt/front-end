@@ -148,8 +148,8 @@ export default {
         1: null, // 替换为实际合约地址
         2: null,
       },
-      reserve: null,
-      popularity: null,
+      reserve: [],
+      exchangeFee: null,
       transactionStatus: null, // 交易状态 (null: 未开始, 'pending': 处理中, 'success': 成功, 'error': 失败)
       transactionHash: "",
       radio: "1",
@@ -172,8 +172,8 @@ export default {
       .get("http://localhost:3300/address")
       .then((result) => {
         this.contractAddresses = {
-          1: result.data.addressCurve, // 替换为实际合约地址
-          2: result.data.addressSum,
+          1: result.data.contractAddress1, // 替换为实际合约地址
+          2: result.data.contractAddress2,
         };
         this.connectContract(this.contractAddresses[this.radio]);
       })
@@ -217,19 +217,61 @@ export default {
       this.connectContract(this.contractAddresses[this.radio]);
     },
 
-    // 根据 sellAmount, reserve, popularity 计算 this.buyAmount
+    // 根据 sellAmount, reserve, exchangeFee 计算 this.buyAmount
     // sellAmount 为用户输入，this.buyAmount 要呈现给用户
-    async calculateBuyAmount(reserve, popularity) {
+    async calculateBuyAmount() {
+      const reserve = this.reserve;
+      const exchangeFee = this.exchangeFee;
       const sellAmount = parseFloat(this.soldAmount);
+      const bigAmount = sellAmount * Math.pow(10, 18);
+      console.log("reserve: ", reserve);
+      console.log("exchangeFee: ", exchangeFee);
+      let bigAmountWithoutFee;
+      if (this.saleToken == "AWT")
+        bigAmountWithoutFee = (bigAmount * (100 - exchangeFee[0])) / 100;
+      else bigAmountWithoutFee = (bigAmount * (100 - exchangeFee[1])) / 100;
+
       if (this.radio == "1") {
-        // 如果是 Curve AMM
-        // 进行一番计算
-        // this.buyAmount = 计算结果;
+        // Curve AMM
+        if (this.saleToken == "AWT") {
+          // 卖出 token 0 (AWT) 换取 token 1
+          const newReserve1 =
+            (400 * (reserve[0] + reserve[1]) +
+              reserve[0] * reserve[1] -
+              400 * (reserve[0] + bigAmountWithoutFee)) /
+            (400 + (reserve[0] + bigAmountWithoutFee));
+          const dOut = reserve[1] - newReserve1;
+          this.buyAmount = dOut / Math.pow(10, 18);
+        } else {
+          // 卖出 token 1 换取 token 0 (AWT)
+          const newReserve0 =
+            (400 * (reserve[0] + reserve[1]) +
+              reserve[0] * reserve[1] -
+              400 * (reserve[1] + bigAmountWithoutFee)) /
+            (400 + (reserve[1] + bigAmountWithoutFee));
+          const dOut = reserve[0] - newReserve0;
+          this.buyAmount = dOut / Math.pow(10, 18);
+        }
       } else if (this.radio == "2") {
-        // 如果是 Constant Mean AMM
-        // 进行一番计算
-        // this.buyAmount = 计算结果;
+        // Constant Mean AMM
+        if (this.saleToken == "AWT") {
+          // 卖出 token 0 (AWT) 换取 token 1
+          const newReserve1 = Math.sqrt(
+            reserve[0] *
+              (Math.pow(reserve[1], 2) / (reserve[0] + bigAmountWithoutFee))
+          );
+          const dOut = reserve[1] - newReserve1;
+          this.buyAmount = dOut / Math.pow(10, 18);
+        } else {
+          // 卖出 token 1 换取 token 0 (AWT)
+          const newReserve0 =
+            (Math.pow(reserve[1], 2) * reserve[0]) /
+            Math.pow(reserve[1] + bigAmountWithoutFee, 2);
+          const dOut = reserve[0] - newReserve0;
+          this.buyAmount = dOut / Math.pow(10, 18);
+        }
       }
+      this.buyAmount = this.buyAmount.toFixed(6);
     },
 
     async connectMetamask() {
@@ -242,6 +284,7 @@ export default {
         // 请求 Metamask 连接
         const provider = new ethers.BrowserProvider(window.ethereum);
         this.signer = await provider.getSigner();
+        console.log("signer: " + this.signer);
       } catch (error) {
         this.transactionStatus = "error";
         this.errorContent = error;
@@ -250,17 +293,31 @@ export default {
     },
     // 连接合约
     async connectContract(address) {
-      this.connectMetamask();
+      // await this.connectMetamask();
+      // const provider = new ethers.BrowserProvider(window.ethereum);
+      // this.signer = await provider.getSigner();
       try {
         const abi = [
-          "function swap(uint flag, uint amount) external flagRange(flag)",
+          "function swap(uint flag, uint amount) external returns(uint)",
           "function getReserve() public view returns(uint, uint)",
           "function getExchangeFee() public view returns(uint, uint)",
         ];
-        this.contract = new ethers.Contract(address, abi, this.signer);
-        this.reserve = await this.contract.getReserve();
-        this.popularity = await this.contract.getPopularity();
-        this.calculateBuyAmount(this.reserve, this.popularity);
+        // let _signer = this.signer
+        // console.log(_signer)
+        // this.contract = new ethers.Contract(address, abi, _signer);
+        // console.log("3")
+        // this.reserve = await this.contract.getReserve();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        // const signer_temp = await provider.getSigner();
+
+        const contract = new ethers.Contract(address, abi, provider);
+        console.log("Contract connected:", contract);
+
+        const [reserve1, reserve2] = await contract.getReserve();
+        this.reserve = [Number(reserve1), Number(reserve2)];
+        const [exchangeFee1, exchangeFee2] = await contract.getExchangeFee();
+        this.exchangeFee = [Number(exchangeFee1), Number(exchangeFee2)];
+        await this.calculateBuyAmount();
       } catch (error) {
         this.transactionStatus = "error";
         this.errorContent = error;
@@ -270,33 +327,51 @@ export default {
     async swapTokens() {
       this.connectContract(this.contractAddresses[this.radio]);
       try {
-        const boughtAmount =
-          (await this.contract.swap(
-            this.saleToken == "AWT" ? 0 : 1,
-            this.soldAmount * 100
-          )) / 100;
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer_temp = await provider.getSigner();
 
-        this.transactionStatus = "success";
-        this.successContent =
-          "You purchased " +
-          boughtAmount +
-          (this.saleToken == "AWT" ? " AWT in the " : " RCT in the ") +
-          (this.radio == "1" ? "Curve AMM Pool" : "Constant Mean Pool");
-        const signerAddress = await this.signer.getAddress();
-        await axios.post("http://localhost:3300/transaction", {
-          pool: this.radio, // 哪个池子，'1' 代表 Curve，'2' 代表 Constant Mean
-          token: this.saleToken, // 付出给系统的是哪个币，取值 'AWT' 或 'RCT'
-          soldAmount, // 付出给系统多少代币
-          boughtAmount, // 从系统得到了多少目标代币
-          time: Date.now(), // UNIX 整型时间戳
-          signerAddress, // 做出请求的用户
-        });
+        const address = this.contractAddresses[this.radio];
+        const abi = [
+          "function swap(uint flag, uint amount) external returns(uint)",
+          "event Swap(address addr, uint flag, uint amount1, uint amount2)",
+        ];
+        const contract = new ethers.Contract(address, abi, signer_temp);
+        // console.log("Contract connected:", contract);
+
+        // 监听 Swap 事件
+        contract.on(
+          "Swap",
+          async (sender, flag, bigAmountInWithoutFee, dOut) => {
+            const boughtAmount = Number(dOut) / Number(10n ** 19n);
+            this.transactionStatus = "success";
+            this.successContent =
+              "You purchased " +
+              boughtAmount +
+              (this.saleToken == "AWT" ? " RCT in the " : " AWT in the ") +
+              (this.radio == "1" ? "Curve AMM Pool" : "Constant Mean Pool");
+            const signerAddress = await signer_temp.getAddress();
+            await axios.post("http://localhost:3300/transaction", {
+              pool: this.radio, // 哪个池子，'1' 代表 Curve，'2' 代表 Constant Mean
+              token: this.saleToken, // 付出给系统的是哪个币，取值 'AWT' 或 'RCT'
+              soldAmount: Number(this.soldAmount), // 付出给系统多少代币
+              boughtAmount, // 从系统得到了多少目标代币
+              time: Date.now(), // UNIX 整型时间戳
+              signerAddress, // 做出请求的用户
+            });
+          }
+        );
+
+        await contract.swap(
+          this.saleToken == "AWT" ? 0 : 1,
+          this.soldAmount * 100
+        );
+        this.transactionStatus = "pending";
       } catch (error) {
         this.transactionStatus = "error"; // 更新交易状态为 "失败"
         this.errorContent = error;
         console.error(error);
       }
-      this.calculateBuyAmount();
+      await this.calculateBuyAmount();
     },
   },
 };
@@ -342,8 +417,10 @@ export default {
 }
 
 .el-menu-demo {
-  transition: all 0.3s ease; /* 平滑过渡效果 */
-  border-bottom: 1px solid rgba(79, 209, 197, 0.3); /* 与激活色呼应的底边 */
+  transition: all 0.3s ease;
+  /* 平滑过渡效果 */
+  border-bottom: 1px solid rgba(79, 209, 197, 0.3);
+  /* 与激活色呼应的底边 */
 }
 
 .el-menu-item {
@@ -351,7 +428,9 @@ export default {
 }
 
 .el-menu-item.is-active {
-  text-shadow: 0 0 12px currentColor; /* 当前颜色的柔和光晕 */
-  border-bottom: 2px solid currentColor !important; /* 底部高光线 */
+  text-shadow: 0 0 12px currentColor;
+  /* 当前颜色的柔和光晕 */
+  border-bottom: 2px solid currentColor !important;
+  /* 底部高光线 */
 }
 </style>
